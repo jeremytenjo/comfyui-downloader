@@ -533,6 +533,31 @@
         line-height: 1.4;
         color: var(--p-text-muted-color, #a8afbd);
       }
+      #${DIALOG_ID} .upload-dropzone {
+        margin-top: 10px;
+        border: 1px dashed color-mix(in srgb, var(--p-primary-color, #2587f9) 45%, var(--p-content-border-color, #434958));
+        border-radius: 10px;
+        min-height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        font-size: 13px;
+        color: var(--p-text-muted-color, #a8afbd);
+        background: color-mix(in srgb, var(--p-primary-color, #2587f9) 7%, var(--p-surface-900, #141922));
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+      }
+      #${DIALOG_ID} .upload-dropzone:hover {
+        border-color: color-mix(in srgb, var(--p-primary-color, #2587f9) 70%, var(--p-content-border-color, #434958));
+        color: var(--p-text-color, #f5f7fb);
+      }
+      #${DIALOG_ID} .upload-dropzone.drag-active {
+        border-color: var(--p-primary-color, #2587f9);
+        background: color-mix(in srgb, var(--p-primary-color, #2587f9) 14%, var(--p-surface-900, #141922));
+        color: var(--p-text-color, #f5f7fb);
+      }
       #${DIALOG_ID} .upload-path-actions {
         margin-top: 12px;
         display: flex;
@@ -2647,6 +2672,12 @@
     resolver(pathValue);
   }
 
+  function dismissUploadPathModal() {
+    const modal = document.getElementById('dtd-upload-path-modal');
+    if (modal) modal.hidden = true;
+    uploadPathResolver = null;
+  }
+
   function requestUploadPath() {
     const modal = document.getElementById('dtd-upload-path-modal');
     const input = document.getElementById('dtd-upload-path-input');
@@ -2994,6 +3025,7 @@
             <h3 class="confirm-title">Upload Output Path</h3>
             <p class="upload-path-copy">Choose where uploaded images should be saved (relative to ComfyUI root).</p>
             <input id="dtd-upload-path-input" type="text" placeholder="output or output/my-images" />
+            <div id="dtd-upload-dropzone" class="upload-dropzone" role="button" tabindex="0">Drop files here to upload</div>
             <div class="upload-path-actions">
               <button id="dtd-upload-path-cancel" type="button">Cancel</button>
               <button id="dtd-upload-path-confirm" type="button">Choose Files</button>
@@ -3190,6 +3222,7 @@
     const uploadPathInput = document.getElementById('dtd-upload-path-input');
     const uploadPathCancel = document.getElementById('dtd-upload-path-cancel');
     const uploadPathConfirm = document.getElementById('dtd-upload-path-confirm');
+    const uploadDropzone = document.getElementById('dtd-upload-dropzone');
     if (uploadPathModal) {
       uploadPathModal.addEventListener('click', (event) => {
         if (event.target === uploadPathModal) closeUploadPathModal(null);
@@ -3213,6 +3246,48 @@
       uploadPathConfirm.addEventListener('click', () => {
         const currentValue = String(uploadPathInput?.value || '').trim();
         closeUploadPathModal(currentValue);
+      });
+    }
+    if (uploadDropzone) {
+      const uploadDroppedFiles = (files) => {
+        const selectedFiles = Array.from(files || []);
+        if (selectedFiles.length === 0) return;
+        const currentValue = String(uploadPathInput?.value || '').trim();
+        state.uploadFolder = currentValue || 'output';
+        dismissUploadPathModal();
+        handleUpload(selectedFiles, { uploadFolder: state.uploadFolder }).catch((err) =>
+          setStatus(err.message || String(err), 'error'),
+        );
+      };
+
+      uploadDropzone.addEventListener('click', () => {
+        const currentValue = String(uploadPathInput?.value || '').trim();
+        closeUploadPathModal(currentValue);
+      });
+      uploadDropzone.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          const currentValue = String(uploadPathInput?.value || '').trim();
+          closeUploadPathModal(currentValue);
+        }
+      });
+      uploadDropzone.addEventListener('dragenter', (event) => {
+        event.preventDefault();
+        uploadDropzone.classList.add('drag-active');
+      });
+      uploadDropzone.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        uploadDropzone.classList.add('drag-active');
+      });
+      uploadDropzone.addEventListener('dragleave', (event) => {
+        if (!uploadDropzone.contains(event.relatedTarget)) {
+          uploadDropzone.classList.remove('drag-active');
+        }
+      });
+      uploadDropzone.addEventListener('drop', (event) => {
+        event.preventDefault();
+        uploadDropzone.classList.remove('drag-active');
+        uploadDroppedFiles(event.dataTransfer?.files || []);
       });
     }
 
