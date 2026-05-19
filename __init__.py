@@ -13,6 +13,7 @@ import urllib.request
 import uuid
 import json
 import re
+import zipfile
 from pathlib import Path
 from typing import Callable
 
@@ -555,6 +556,52 @@ def _resolve_deletable_path(path_value: str, roots: dict[str, str]) -> tuple[str
             reason="Path points to a directory outside custom_nodes; only custom_nodes directories can be deleted"
         )
     return delete_path, is_directory
+
+
+def _resolve_exportable_path(path_value: str, roots: dict[str, str]) -> str:
+    candidate = str(path_value or "").strip()
+    if not candidate:
+        raise web.HTTPBadRequest(reason="Missing required field: path")
+
+    export_path = os.path.abspath(candidate)
+    allowed_roots = [path for path in roots.values() if path]
+    if not _is_within_any_root(export_path, allowed_roots):
+        raise web.HTTPBadRequest(reason="Requested path is outside allowed ComfyUI roots")
+    if not os.path.exists(export_path):
+        raise web.HTTPNotFound(reason="Requested path does not exist")
+    return export_path
+
+
+def _create_export_zip_archive(export_path: str) -> tuple[str, str]:
+    base_name = os.path.basename(export_path.rstrip(os.sep)) or "export"
+    safe_base_name = _sanitize_filename(base_name)
+    archive_name = f"{safe_base_name}.zip"
+
+    fd, archive_path = tempfile.mkstemp(prefix="dtd_export_", suffix=".zip")
+    os.close(fd)
+
+    try:
+        with zipfile.ZipFile(archive_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+            if os.path.isdir(export_path):
+                parent_dir = os.path.dirname(export_path)
+                for dirpath, _dirnames, filenames in os.walk(export_path):
+                    rel_dir = os.path.relpath(dirpath, parent_dir).replace(os.sep, "/")
+                    if not filenames:
+                        archive.writestr(f"{rel_dir}/", "")
+                    for filename in filenames:
+                        source_file = os.path.join(dirpath, filename)
+                        rel_file = os.path.relpath(source_file, parent_dir).replace(os.sep, "/")
+                        archive.write(source_file, arcname=rel_file)
+            else:
+                archive.write(export_path, arcname=safe_base_name)
+        return archive_path, archive_name
+    except Exception:
+        if os.path.exists(archive_path):
+            try:
+                os.remove(archive_path)
+            except OSError:
+                pass
+        raise
 
 
 def _prune_old_jobs() -> None:
@@ -1177,6 +1224,41 @@ async def upload_file_to_directory(request: web.Request) -> web.Response:
             "bytes_written": bytes_written,
         }
     )
+
+
+@PromptServer.instance.routes.post("/download-to-dir/export")
+async def export_path_as_zip(request: web.Request) -> web.StreamResponse:
+    body = await request.json()
+    roots = _build_root_map()
+    export_path = _resolve_exportable_path(body.get("path", ""), roots)
+    archive_path, archive_name = _create_export_zip_archive(export_path)
+
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "application/zip",
+            "Content-Disposition": f'attachment; filename="{archive_name}"',
+        },
+    )
+
+    try:
+        stat = os.stat(archive_path)
+        response.content_length = stat.st_size
+        await response.prepare(request)
+        with open(archive_path, "rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                await response.write(chunk)
+        await response.write_eof()
+        return response
+    finally:
+        if os.path.exists(archive_path):
+            try:
+                os.remove(archive_path)
+            except OSError:
+                logging.warning("Failed to clean temporary export file: %s", archive_path)
 
 
 @PromptServer.instance.routes.post("/download-to-dir/missing-nodes/analyze")

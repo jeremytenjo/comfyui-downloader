@@ -2,6 +2,12 @@
 
 All notable changes to this extension are documented in this file.
 
+## 2026-05-19
+
+- Added an `Export` button between `Download` and `Upload`.
+- Added an export-path modal so users can type a file/folder path to export.
+- Added backend export route to zip the selected file/folder and download it as a `.zip`.
+
 ## 2026-04-28
 
 - Added an upload-path modal that opens when clicking `Upload`, so users can input the output folder before choosing files.

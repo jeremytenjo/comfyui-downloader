@@ -29,6 +29,7 @@
 
   let restartConfirmResolver = null;
   let uploadPathResolver = null;
+  let exportPathResolver = null;
   let hotReloadTimer = null;
   let lastHotReloadStamp = null;
 
@@ -298,7 +299,8 @@
       #${DIALOG_ID} #dtd-submit:hover {
         filter: brightness(1.08);
       }
-      #${DIALOG_ID} #dtd-upload {
+      #${DIALOG_ID} #dtd-upload,
+      #${DIALOG_ID} #dtd-export {
         width: fit-content;
         min-width: 0;
         display: inline-flex;
@@ -311,7 +313,8 @@
         border-color: color-mix(in srgb, var(--p-primary-color, #2587f9) 40%, var(--p-content-border-color, #434958));
         color: var(--p-text-color, #f5f7fb);
       }
-      #${DIALOG_ID} #dtd-upload:hover {
+      #${DIALOG_ID} #dtd-upload:hover,
+      #${DIALOG_ID} #dtd-export:hover {
         background: var(--p-surface-700, #2c323d);
       }
       #${DIALOG_ID} #dtd-missing-warning {
@@ -2627,6 +2630,52 @@
     );
   }
 
+  async function handleExport(pathValue) {
+    const exportPath = String(pathValue || '').trim();
+    if (!exportPath) {
+      setStatus('Export path is required.', 'error');
+      return;
+    }
+
+    setStatus('Preparing export zip...');
+    const resp = await apiFetch('/download-to-dir/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: exportPath }),
+    });
+
+    if (!resp.ok) {
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch {
+        data = null;
+      }
+      const message = formatApiError(
+        resp.status,
+        data,
+        `Export failed (${resp.status})`,
+      );
+      setStatus(message, 'error');
+      return;
+    }
+
+    const blob = await resp.blob();
+    const disposition = String(resp.headers.get('content-disposition') || '');
+    const filenameMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
+    const filename = String(filenameMatch?.[1] || '').trim() || 'export.zip';
+    const objectUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(objectUrl);
+
+    setStatus(`Exported ${filename}`, 'success');
+  }
+
   async function callRestartEndpoint() {
     const routes = [
       '/download-to-dir/restart',
@@ -2678,6 +2727,15 @@
     uploadPathResolver = null;
   }
 
+  function closeExportPathModal(pathValue) {
+    const modal = document.getElementById('dtd-export-path-modal');
+    if (modal) modal.hidden = true;
+    if (!exportPathResolver) return;
+    const resolver = exportPathResolver;
+    exportPathResolver = null;
+    resolver(pathValue);
+  }
+
   function requestUploadPath() {
     const modal = document.getElementById('dtd-upload-path-modal');
     const input = document.getElementById('dtd-upload-path-input');
@@ -2695,6 +2753,26 @@
 
     return new Promise((resolve) => {
       uploadPathResolver = resolve;
+    });
+  }
+
+  function requestExportPath() {
+    const modal = document.getElementById('dtd-export-path-modal');
+    const input = document.getElementById('dtd-export-path-input');
+    if (!modal || !(input instanceof HTMLInputElement)) {
+      return Promise.resolve(null);
+    }
+    if (exportPathResolver) closeExportPathModal(null);
+
+    input.value = String(input.value || '').trim();
+    modal.hidden = false;
+    window.setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+
+    return new Promise((resolve) => {
+      exportPathResolver = resolve;
     });
   }
 
@@ -3000,6 +3078,7 @@
             <button id="dtd-missing-warning" type="button" hidden>
               <i class="icon-[lucide--triangle-alert]"></i>
             </button>
+            <button id="dtd-export" type="button">Export</button>
             <button id="dtd-upload" type="button">Upload</button>
             <button id="dtd-restart" type="button">
               <span class="icon-wrap"><i class="icon-[lucide--refresh-cw]"></i></span>
@@ -3029,6 +3108,17 @@
             <div class="upload-path-actions">
               <button id="dtd-upload-path-cancel" type="button">Cancel</button>
               <button id="dtd-upload-path-confirm" type="button">Choose Files</button>
+            </div>
+          </div>
+        </div>
+        <div id="dtd-export-path-modal" class="confirm-modal" hidden>
+          <div class="confirm-card">
+            <h3 class="confirm-title">Export Path</h3>
+            <p class="upload-path-copy">Enter a file or folder path. It will be zipped and downloaded.</p>
+            <input id="dtd-export-path-input" type="text" placeholder="/absolute/path/to/folder-or-file" />
+            <div class="upload-path-actions">
+              <button id="dtd-export-path-cancel" type="button">Cancel</button>
+              <button id="dtd-export-path-confirm" type="button">Export</button>
             </div>
           </div>
         </div>
@@ -3169,6 +3259,7 @@
     }
 
     const upload = document.getElementById('dtd-upload');
+    const exportBtn = document.getElementById('dtd-export');
     const fileInput = document.getElementById('dtd-file');
     if (upload && fileInput instanceof HTMLInputElement) {
       upload.addEventListener('click', async () => {
@@ -3183,6 +3274,15 @@
         fileInput.value = '';
         if (files.length === 0) return;
         handleUpload(files, { uploadFolder: state.uploadFolder }).catch((err) =>
+          setStatus(err.message || String(err), 'error'),
+        );
+      });
+    }
+    if (exportBtn) {
+      exportBtn.addEventListener('click', async () => {
+        const chosenPath = await requestExportPath();
+        if (chosenPath == null) return;
+        handleExport(chosenPath).catch((err) =>
           setStatus(err.message || String(err), 'error'),
         );
       });
@@ -3288,6 +3388,36 @@
         event.preventDefault();
         uploadDropzone.classList.remove('drag-active');
         uploadDroppedFiles(event.dataTransfer?.files || []);
+      });
+    }
+
+    const exportPathModal = document.getElementById('dtd-export-path-modal');
+    const exportPathInput = document.getElementById('dtd-export-path-input');
+    const exportPathCancel = document.getElementById('dtd-export-path-cancel');
+    const exportPathConfirm = document.getElementById('dtd-export-path-confirm');
+    if (exportPathModal) {
+      exportPathModal.addEventListener('click', (event) => {
+        if (event.target === exportPathModal) closeExportPathModal(null);
+      });
+      exportPathModal.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeExportPathModal(null);
+          return;
+        }
+        if (event.key === 'Enter') {
+          const currentValue = String(exportPathInput?.value || '').trim();
+          closeExportPathModal(currentValue);
+        }
+      });
+    }
+    if (exportPathCancel) {
+      exportPathCancel.addEventListener('click', () => closeExportPathModal(null));
+    }
+    if (exportPathConfirm) {
+      exportPathConfirm.addEventListener('click', () => {
+        const currentValue = String(exportPathInput?.value || '').trim();
+        closeExportPathModal(currentValue);
       });
     }
 
