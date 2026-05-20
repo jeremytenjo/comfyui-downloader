@@ -3324,6 +3324,16 @@
     const uploadPathConfirm = document.getElementById('dtd-upload-path-confirm');
     const uploadDropzone = document.getElementById('dtd-upload-dropzone');
     if (uploadPathModal) {
+      const consumeModalDragEvent = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+          event.stopImmediatePropagation();
+        }
+      };
+      for (const eventName of ['dragenter', 'dragover', 'drop']) {
+        uploadPathModal.addEventListener(eventName, consumeModalDragEvent, true);
+      }
       uploadPathModal.addEventListener('click', (event) => {
         if (event.target === uploadPathModal) closeUploadPathModal(null);
       });
@@ -3349,6 +3359,13 @@
       });
     }
     if (uploadDropzone) {
+      const consumeDragEvent = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+          event.stopImmediatePropagation();
+        }
+      };
       const uploadDroppedFiles = (files) => {
         const selectedFiles = Array.from(files || []);
         if (selectedFiles.length === 0) return;
@@ -3371,21 +3388,25 @@
           closeUploadPathModal(currentValue);
         }
       });
+      for (const eventName of ['dragenter', 'dragover', 'drop']) {
+        uploadDropzone.addEventListener(eventName, consumeDragEvent, true);
+      }
       uploadDropzone.addEventListener('dragenter', (event) => {
-        event.preventDefault();
+        consumeDragEvent(event);
         uploadDropzone.classList.add('drag-active');
       });
       uploadDropzone.addEventListener('dragover', (event) => {
-        event.preventDefault();
+        consumeDragEvent(event);
         uploadDropzone.classList.add('drag-active');
       });
       uploadDropzone.addEventListener('dragleave', (event) => {
+        event.stopPropagation();
         if (!uploadDropzone.contains(event.relatedTarget)) {
           uploadDropzone.classList.remove('drag-active');
         }
       });
       uploadDropzone.addEventListener('drop', (event) => {
-        event.preventDefault();
+        consumeDragEvent(event);
         uploadDropzone.classList.remove('drag-active');
         uploadDroppedFiles(event.dataTransfer?.files || []);
       });
