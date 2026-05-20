@@ -3325,8 +3325,8 @@
     const uploadDropzone = document.getElementById('dtd-upload-dropzone');
     if (uploadPathModal) {
       const consumeModalDragEvent = (event) => {
-        const target = event.target instanceof Element ? event.target : null;
-        const isInDropzone = !!target?.closest?.('#dtd-upload-dropzone');
+        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        const isInDropzone = path.includes(uploadDropzone);
         if (isInDropzone) return;
         event.preventDefault();
         event.stopPropagation();
@@ -3385,9 +3385,18 @@
           closeUploadPathModal(currentValue);
         }
       });
-      for (const eventName of ['dragenter', 'dragover', 'drop']) {
+      for (const eventName of ['dragenter', 'dragover']) {
         uploadDropzone.addEventListener(eventName, consumeDragEvent, true);
       }
+      uploadDropzone.addEventListener(
+        'drop',
+        (event) => {
+          consumeDragEvent(event);
+          uploadDropzone.classList.remove('drag-active');
+          uploadDroppedFiles(event.dataTransfer?.files || []);
+        },
+        true,
+      );
       uploadDropzone.addEventListener('dragenter', (event) => {
         consumeDragEvent(event);
         uploadDropzone.classList.add('drag-active');
@@ -3401,11 +3410,6 @@
         if (!uploadDropzone.contains(event.relatedTarget)) {
           uploadDropzone.classList.remove('drag-active');
         }
-      });
-      uploadDropzone.addEventListener('drop', (event) => {
-        consumeDragEvent(event);
-        uploadDropzone.classList.remove('drag-active');
-        uploadDroppedFiles(event.dataTransfer?.files || []);
       });
     }
 
