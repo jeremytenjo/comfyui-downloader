@@ -3325,11 +3325,11 @@
     const uploadDropzone = document.getElementById('dtd-upload-dropzone');
     if (uploadPathModal) {
       const consumeModalDragEvent = (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const isInDropzone = !!target?.closest?.('#dtd-upload-dropzone');
+        if (isInDropzone) return;
         event.preventDefault();
         event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === 'function') {
-          event.stopImmediatePropagation();
-        }
       };
       for (const eventName of ['dragenter', 'dragover', 'drop']) {
         uploadPathModal.addEventListener(eventName, consumeModalDragEvent, true);
@@ -3362,9 +3362,6 @@
       const consumeDragEvent = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === 'function') {
-          event.stopImmediatePropagation();
-        }
       };
       const uploadDroppedFiles = (files) => {
         const selectedFiles = Array.from(files || []);
